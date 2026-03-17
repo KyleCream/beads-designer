@@ -47,7 +47,7 @@ class UploadWidget(QWidget):
         # 缩略图
         self.thumb_label = QLabel('点击上传图片')
         self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumb_label.setFixedHeight(130)
+        self.thumb_label.setFixedHeight(120)
         self.thumb_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )

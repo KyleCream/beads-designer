@@ -278,7 +278,7 @@ class GridEditorWidget(QWidget):
 
         # 右侧统计
         stats_panel = QWidget()
-        stats_panel.setMaximumWidth(250)
+        stats_panel.setMaximumWidth(220)
         stats_layout = QVBoxLayout(stats_panel)
         stats_layout.setContentsMargins(5, 0, 0, 0)
         stats_layout.setSpacing(4)
@@ -308,7 +308,7 @@ class GridEditorWidget(QWidget):
         stats_layout.addWidget(self.total_label)
 
         splitter.addWidget(stats_panel)
-        splitter.setSizes([600, 220])
+        splitter.setSizes([550, 200])
 
         layout.addWidget(splitter, 1)
 

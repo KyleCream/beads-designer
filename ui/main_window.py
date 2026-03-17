@@ -125,13 +125,13 @@ class MainWindow(QMainWindow):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(0)
 
-        # ---- 左侧 ----
+        # ---- 左侧面板 宽度加到 380 ----
         left = QWidget()
-        left.setFixedWidth(280)
+        left.setFixedWidth(380)
         left.setStyleSheet('background: #fafbfc; border-right: 1px solid #e8e8e8;')
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(10, 10, 10, 10)
-        ll.setSpacing(8)
+        ll.setContentsMargins(12, 10, 12, 10)
+        ll.setSpacing(10)
 
         self.upload_widget = UploadWidget()
         ll.addWidget(self.upload_widget)
@@ -152,10 +152,8 @@ class MainWindow(QMainWindow):
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(0)
 
-        # 顶部操作栏 - 始终可见
         rl.addWidget(self._create_action_bar())
 
-        # 内容切换
         self.work_stack = QStackedWidget()
         self.preview_widget = PreviewWidget()
         self.work_stack.addWidget(self.preview_widget)
@@ -167,7 +165,7 @@ class MainWindow(QMainWindow):
         return ws
 
     def _create_action_bar(self):
-        """顶部操作栏 - 所有按钮始终可见"""
+        """顶部操作栏 - 按钮自适应宽度，文字不截断"""
         bar = QWidget()
         bar.setFixedHeight(52)
         bar.setStyleSheet("""
@@ -178,72 +176,76 @@ class MainWindow(QMainWindow):
             }
         """)
         lo = QHBoxLayout(bar)
-        lo.setContentsMargins(16, 6, 16, 6)
-        lo.setSpacing(12)
+        lo.setContentsMargins(12, 6, 12, 6)
+        lo.setSpacing(6)
 
-        # 步骤指示
+        # 步骤提示 - 允许被压缩
         self.step_label = QLabel('')
-        self.step_label.setStyleSheet('font-size: 13px; color: #636e72;')
-        lo.addWidget(self.step_label)
+        self.step_label.setStyleSheet('font-size: 12px; color: #636e72;')
+        self.step_label.setMinimumWidth(80)
+        lo.addWidget(self.step_label, 1)  # stretch=1 让它吃掉多余空间
 
-        lo.addStretch()
+        # ===== 按钮区域 - 不被压缩 =====
+        btn_area = QHBoxLayout()
+        btn_area.setSpacing(4)
 
-        # ===== 三个主按钮 - 始终可见 =====
+        self.btn_preview = QPushButton('👁️ 预览')
+        self.btn_preview.setMinimumWidth(70)
+        self.btn_preview.setStyleSheet(self._action_style('#00b894', '#00a381'))
+        btn_area.addWidget(self.btn_preview)
 
-        self.btn_preview = QPushButton('  👁️  预览效果  ')
-        self.btn_preview.setStyleSheet(self._action_style(
-            '#00b894', '#00a381', '#dfe6e9'
-        ))
-        lo.addWidget(self.btn_preview)
+        a1 = QLabel('›')
+        a1.setStyleSheet('font-size: 18px; color: #ccc;')
+        a1.setFixedWidth(12)
+        a1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_area.addWidget(a1)
 
-        # 步骤箭头
-        arrow1 = QLabel('▸')
-        arrow1.setStyleSheet('font-size: 16px; color: #b2bec3;')
-        lo.addWidget(arrow1)
+        self.btn_edit = QPushButton('📐 生成图纸')
+        self.btn_edit.setMinimumWidth(90)
+        self.btn_edit.setStyleSheet(self._action_style('#0984e3', '#0876cc'))
+        btn_area.addWidget(self.btn_edit)
 
-        self.btn_edit = QPushButton('  📐  生成图纸  ')
-        self.btn_edit.setStyleSheet(self._action_style(
-            '#0984e3', '#0876cc', '#dfe6e9'
-        ))
-        lo.addWidget(self.btn_edit)
+        a2 = QLabel('›')
+        a2.setStyleSheet('font-size: 18px; color: #ccc;')
+        a2.setFixedWidth(12)
+        a2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_area.addWidget(a2)
 
-        arrow2 = QLabel('▸')
-        arrow2.setStyleSheet('font-size: 16px; color: #b2bec3;')
-        lo.addWidget(arrow2)
+        self.btn_pdf = QPushButton('📄 导出PDF')
+        self.btn_pdf.setMinimumWidth(90)
+        self.btn_pdf.setStyleSheet(self._action_style('#d63031', '#c0392b'))
+        btn_area.addWidget(self.btn_pdf)
 
-        self.btn_pdf = QPushButton('  📄  导出PDF  ')
-        self.btn_pdf.setStyleSheet(self._action_style(
-            '#d63031', '#c0392b', '#dfe6e9'
-        ))
-        lo.addWidget(self.btn_pdf)
+        btn_area.addSpacing(6)
 
-        # 辅助按钮
-        lo.addSpacing(8)
-
-        self.btn_back = QPushButton('← 返回预览')
+        self.btn_back = QPushButton('← 返回')
+        self.btn_back.setMinimumWidth(60)
         self.btn_back.setStyleSheet("""
             QPushButton {
                 background: transparent; color: #636e72; border: 1px solid #ddd;
-                padding: 6px 12px; border-radius: 4px; font-size: 11px;
+                padding: 6px 10px; border-radius: 4px; font-size: 11px;
             }
             QPushButton:hover { background: #f0f0f0; border-color: #bbb; }
             QPushButton:disabled { color: #ccc; border-color: #eee; }
         """)
-        lo.addWidget(self.btn_back)
+        btn_area.addWidget(self.btn_back)
+
+        lo.addLayout(btn_area)
 
         return bar
 
     @staticmethod
-    def _action_style(bg, hover, disabled_bg):
+    def _action_style(bg, hover):
         return f"""
             QPushButton {{
                 background-color: {bg}; color: white; border: none;
-                padding: 7px 16px; border-radius: 5px;
+                padding: 6px 12px; border-radius: 5px;
                 font-size: 12px; font-weight: bold;
+                min-height: 28px;
             }}
             QPushButton:hover {{ background-color: {hover}; }}
             QPushButton:disabled {{
-                background-color: {disabled_bg}; color: #b2bec3;
+                background-color: #e0e0e0; color: #aaa;
             }}
         """
 
