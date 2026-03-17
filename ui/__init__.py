@@ -1,3 +1,3 @@
 """
-Beads Designer - UI Module
+Beads Designer - UI Module v2
 """
