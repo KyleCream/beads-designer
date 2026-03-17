@@ -1,7 +1,6 @@
 """
-主窗口模块 v2
-新布局：左侧(上传缩略图+设置面板) | 中间(预览/编辑区) | 流程按钮
-新流程：上传 → 设置 → 预览 → 编辑图纸 → 导出PDF
+主窗口 v3
+修复：顶部步骤按钮始终可见，按流程启用/禁用
 """
 
 import sys
@@ -11,9 +10,9 @@ import json
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QMessageBox,
-    QSplitter, QLabel, QSizePolicy, QFrame
+    QSplitter, QLabel, QFrame
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
 from .upload_widget import UploadWidget, ImageDetailDialog
@@ -29,30 +28,25 @@ from core.pdf_generator import PDFGenerator
 
 
 class MainWindow(QMainWindow):
-    """主窗口"""
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle('拼豆图纸生成器 - Beads Designer')
         self._adapt_to_screen()
-
         self._current_result: PixelizeResult = None
-
         self._init_managers()
         self._init_ui()
         self._connect_signals()
+        self._update_step_state()
 
     def _adapt_to_screen(self):
         screen = QApplication.primaryScreen()
         if screen:
-            avail = screen.availableGeometry()
-            w = max(1000, min(int(avail.width() * 0.85), 1700))
-            h = max(650, min(int(avail.height() * 0.85), 1050))
+            a = screen.availableGeometry()
+            w = max(1000, min(int(a.width() * 0.85), 1700))
+            h = max(650, min(int(a.height() * 0.85), 1050))
             self.resize(w, h)
-            self.move(
-                avail.x() + (avail.width() - w) // 2,
-                avail.y() + (avail.height() - h) // 2
-            )
+            self.move(a.x() + (a.width() - w) // 2, a.y() + (a.height() - h) // 2)
         else:
             self.resize(1200, 800)
         self.setMinimumSize(900, 600)
@@ -65,270 +59,299 @@ class MainWindow(QMainWindow):
     def _init_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root_layout = QHBoxLayout(central)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # === 左侧导航 ===
-        root_layout.addWidget(self._create_nav_bar())
+        root.addWidget(self._create_nav())
 
-        # === 内容区 ===
         self.content_stack = QStackedWidget()
-
-        # 页面0: 工作区
         self.content_stack.addWidget(self._create_workspace())
-
-        # 页面1: 历史记录
         self.history_widget = HistoryWidget(self.history_manager)
         self.content_stack.addWidget(self.history_widget)
-
-        root_layout.addWidget(self.content_stack, 1)
+        root.addWidget(self.content_stack, 1)
 
         self.statusBar().showMessage('Ready - 请上传图片开始制作')
+        self.statusBar().setStyleSheet(
+            'background: #2c3e50; color: white; font-size: 11px; padding: 2px 8px;'
+        )
 
-    # ==================== 导航栏 ====================
+    # ==================== 导航 ====================
 
-    def _create_nav_bar(self) -> QWidget:
+    def _create_nav(self):
         nav = QWidget()
         nav.setFixedWidth(150)
         nav.setStyleSheet("""
-            QWidget { background-color: #2c3e50; }
+            QWidget { background: #2c3e50; }
             QPushButton {
                 color: white; background: transparent; border: none;
                 padding: 12px 14px; text-align: left; font-size: 13px;
                 border-left: 3px solid transparent;
             }
-            QPushButton:hover {
-                background-color: #34495e; border-left-color: #3498db;
-            }
-            QPushButton:checked {
-                background-color: #34495e; border-left-color: #3498db;
-            }
+            QPushButton:hover { background: #34495e; border-left-color: #3498db; }
+            QPushButton:checked { background: #34495e; border-left-color: #3498db; }
         """)
-        layout = QVBoxLayout(nav)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        lo = QVBoxLayout(nav)
+        lo.setContentsMargins(0, 0, 0, 0)
+        lo.setSpacing(0)
 
-        title = QLabel('🎨 拼豆设计器')
-        title.setStyleSheet(
+        t = QLabel('🎨 拼豆设计器')
+        t.setStyleSheet(
             'color:white; font-size:15px; font-weight:bold;'
             'padding:14px 10px; border-bottom:1px solid #34495e;'
         )
-        layout.addWidget(title)
+        lo.addWidget(t)
 
-        self.nav_workspace_btn = QPushButton('📋 新建图纸')
-        self.nav_workspace_btn.setCheckable(True)
-        self.nav_workspace_btn.setChecked(True)
-        layout.addWidget(self.nav_workspace_btn)
+        self.nav_work = QPushButton('📋 新建图纸')
+        self.nav_work.setCheckable(True)
+        self.nav_work.setChecked(True)
+        lo.addWidget(self.nav_work)
 
-        self.nav_history_btn = QPushButton('📁 历史记录')
-        self.nav_history_btn.setCheckable(True)
-        layout.addWidget(self.nav_history_btn)
+        self.nav_hist = QPushButton('📁 历史记录')
+        self.nav_hist.setCheckable(True)
+        lo.addWidget(self.nav_hist)
 
-        layout.addStretch()
-        v = QLabel('v1.1.0')
+        lo.addStretch()
+        v = QLabel('v1.2.0')
         v.setStyleSheet('color:#7f8c8d; padding:8px 10px; font-size:10px;')
-        layout.addWidget(v)
+        lo.addWidget(v)
         return nav
 
     # ==================== 工作区 ====================
 
-    def _create_workspace(self) -> QWidget:
-        workspace = QWidget()
-        layout = QHBoxLayout(workspace)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+    def _create_workspace(self):
+        ws = QWidget()
+        lo = QHBoxLayout(ws)
+        lo.setContentsMargins(0, 0, 0, 0)
+        lo.setSpacing(0)
 
-        # ---- 左侧面板（上传缩略图 + 设置） ----
-        left_panel = QWidget()
-        left_panel.setFixedWidth(280)
-        left_panel.setStyleSheet('background-color: #fafbfc; border-right: 1px solid #dcdde1;')
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(10, 10, 10, 10)
-        left_layout.setSpacing(8)
+        # ---- 左侧 ----
+        left = QWidget()
+        left.setFixedWidth(280)
+        left.setStyleSheet('background: #fafbfc; border-right: 1px solid #e8e8e8;')
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(10, 10, 10, 10)
+        ll.setSpacing(8)
 
-        # 上传缩略图区
         self.upload_widget = UploadWidget()
-        left_layout.addWidget(self.upload_widget)
+        ll.addWidget(self.upload_widget)
 
-        # 分割线
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet('color: #dcdde1;')
-        left_layout.addWidget(line)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet('color: #e8e8e8;')
+        ll.addWidget(sep)
 
-        # 设置面板
         self.settings_panel = SettingsPanel(self.palette_manager)
-        left_layout.addWidget(self.settings_panel, 1)
+        ll.addWidget(self.settings_panel, 1)
 
-        layout.addWidget(left_panel)
+        lo.addWidget(left)
 
-        # ---- 中间/右侧 内容区（预览 和 编辑 切换） ----
-        right_area = QWidget()
-        right_layout = QVBoxLayout(right_area)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
+        # ---- 右侧 ----
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
 
-        # 顶部流程步骤条
-        self.step_bar = self._create_step_bar()
-        right_layout.addWidget(self.step_bar)
+        # 顶部操作栏 - 始终可见
+        rl.addWidget(self._create_action_bar())
 
-        # 内容切换区
+        # 内容切换
         self.work_stack = QStackedWidget()
-
-        # step0: 预览
         self.preview_widget = PreviewWidget()
         self.work_stack.addWidget(self.preview_widget)
-
-        # step1: 图纸编辑
         self.grid_editor = GridEditorWidget()
         self.work_stack.addWidget(self.grid_editor)
+        rl.addWidget(self.work_stack, 1)
 
-        right_layout.addWidget(self.work_stack, 1)
+        lo.addWidget(right, 1)
+        return ws
 
-        layout.addWidget(right_area, 1)
-
-        return workspace
-
-    def _create_step_bar(self) -> QWidget:
+    def _create_action_bar(self):
+        """顶部操作栏 - 所有按钮始终可见"""
         bar = QWidget()
-        bar.setFixedHeight(50)
-        bar.setStyleSheet('background-color: #fff; border-bottom: 1px solid #dcdde1;')
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(15, 5, 15, 5)
-        layout.setSpacing(10)
+        bar.setFixedHeight(52)
+        bar.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ffffff, stop:1 #f8f9fa);
+                border-bottom: 1px solid #e8e8e8;
+            }
+        """)
+        lo = QHBoxLayout(bar)
+        lo.setContentsMargins(16, 6, 16, 6)
+        lo.setSpacing(12)
 
         # 步骤指示
-        self.step_label = QLabel('Step 1: 上传图片并设置参数')
-        self.step_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #2d3436;')
-        layout.addWidget(self.step_label)
+        self.step_label = QLabel('')
+        self.step_label.setStyleSheet('font-size: 13px; color: #636e72;')
+        lo.addWidget(self.step_label)
 
-        layout.addStretch()
+        lo.addStretch()
 
-        # 流程按钮
-        self.btn_preview = QPushButton('👁️ 预览效果')
-        self.btn_preview.setStyleSheet(self._action_btn_style('#00b894', '#00a381'))
-        self.btn_preview.setEnabled(False)
-        layout.addWidget(self.btn_preview)
+        # ===== 三个主按钮 - 始终可见 =====
 
-        self.btn_generate_grid = QPushButton('📐 生成图纸')
-        self.btn_generate_grid.setStyleSheet(self._action_btn_style('#0984e3', '#0876cc'))
-        self.btn_generate_grid.setEnabled(False)
-        layout.addWidget(self.btn_generate_grid)
+        self.btn_preview = QPushButton('  👁️  预览效果  ')
+        self.btn_preview.setStyleSheet(self._action_style(
+            '#00b894', '#00a381', '#dfe6e9'
+        ))
+        lo.addWidget(self.btn_preview)
 
-        self.btn_export_pdf = QPushButton('📄 导出PDF')
-        self.btn_export_pdf.setStyleSheet(self._action_btn_style('#d63031', '#b71c1c'))
-        self.btn_export_pdf.setEnabled(False)
-        layout.addWidget(self.btn_export_pdf)
+        # 步骤箭头
+        arrow1 = QLabel('▸')
+        arrow1.setStyleSheet('font-size: 16px; color: #b2bec3;')
+        lo.addWidget(arrow1)
 
-        self.btn_back_preview = QPushButton('← 返回预览')
-        self.btn_back_preview.setStyleSheet(self._action_btn_style('#636e72', '#2d3436'))
-        self.btn_back_preview.setVisible(False)
-        layout.addWidget(self.btn_back_preview)
+        self.btn_edit = QPushButton('  📐  生成图纸  ')
+        self.btn_edit.setStyleSheet(self._action_style(
+            '#0984e3', '#0876cc', '#dfe6e9'
+        ))
+        lo.addWidget(self.btn_edit)
+
+        arrow2 = QLabel('▸')
+        arrow2.setStyleSheet('font-size: 16px; color: #b2bec3;')
+        lo.addWidget(arrow2)
+
+        self.btn_pdf = QPushButton('  📄  导出PDF  ')
+        self.btn_pdf.setStyleSheet(self._action_style(
+            '#d63031', '#c0392b', '#dfe6e9'
+        ))
+        lo.addWidget(self.btn_pdf)
+
+        # 辅助按钮
+        lo.addSpacing(8)
+
+        self.btn_back = QPushButton('← 返回预览')
+        self.btn_back.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #636e72; border: 1px solid #ddd;
+                padding: 6px 12px; border-radius: 4px; font-size: 11px;
+            }
+            QPushButton:hover { background: #f0f0f0; border-color: #bbb; }
+            QPushButton:disabled { color: #ccc; border-color: #eee; }
+        """)
+        lo.addWidget(self.btn_back)
 
         return bar
 
     @staticmethod
-    def _action_btn_style(bg: str, hover: str) -> str:
+    def _action_style(bg, hover, disabled_bg):
         return f"""
             QPushButton {{
                 background-color: {bg}; color: white; border: none;
-                padding: 7px 16px; border-radius: 4px;
+                padding: 7px 16px; border-radius: 5px;
                 font-size: 12px; font-weight: bold;
             }}
             QPushButton:hover {{ background-color: {hover}; }}
-            QPushButton:disabled {{ background-color: #dfe6e9; color: #b2bec3; }}
+            QPushButton:disabled {{
+                background-color: {disabled_bg}; color: #b2bec3;
+            }}
         """
+
+    # ==================== 状态管理 ====================
+
+    def _update_step_state(self):
+        """根据当前状态更新所有按钮的启用/禁用"""
+        has_image = self.upload_widget.current_image_path is not None
+        has_preview = self._current_result is not None
+        is_editing = self.work_stack.currentIndex() == 1
+
+        # 预览按钮：有图片就可以点
+        self.btn_preview.setEnabled(has_image)
+
+        # 生成图纸：有预览结果就可以点
+        self.btn_edit.setEnabled(has_preview)
+
+        # 导出PDF：在编辑模式且有数据就可以点
+        self.btn_pdf.setEnabled(is_editing and has_preview)
+
+        # 返回预览：只在编辑模式可点
+        self.btn_back.setEnabled(is_editing)
+
+        # 步骤提示
+        if is_editing:
+            self.step_label.setText('📐 编辑图纸 — 点击格子修改颜色')
+        elif has_preview:
+            self.step_label.setText('👁️ 预览完成 — 确认后点击「生成图纸」')
+        elif has_image:
+            self.step_label.setText('📷 图片已加载 — 调整参数后点击「预览效果」')
+        else:
+            self.step_label.setText('请先上传一张图片')
 
     # ==================== 信号连接 ====================
 
     def _connect_signals(self):
-        # 导航
-        self.nav_workspace_btn.clicked.connect(lambda: self._switch_page(0))
-        self.nav_history_btn.clicked.connect(lambda: self._switch_page(1))
+        self.nav_work.clicked.connect(lambda: self._switch_page(0))
+        self.nav_hist.clicked.connect(lambda: self._switch_page(1))
 
-        # 上传
         self.upload_widget.image_loaded.connect(self._on_image_loaded)
         self.upload_widget.crop_changed.connect(self._on_crop_changed)
         self.upload_widget.crop_cleared.connect(self._on_crop_cleared)
-        self.upload_widget.detail_requested.connect(self._on_detail_requested)
+        self.upload_widget.detail_requested.connect(self._on_detail)
 
-        # 流程按钮
         self.btn_preview.clicked.connect(self._on_preview)
-        self.btn_generate_grid.clicked.connect(self._on_generate_grid)
-        self.btn_export_pdf.clicked.connect(self._on_export_pdf)
-        self.btn_back_preview.clicked.connect(self._on_back_to_preview)
+        self.btn_edit.clicked.connect(self._on_generate_grid)
+        self.btn_pdf.clicked.connect(self._on_export_pdf)
+        self.btn_back.clicked.connect(self._on_back)
 
-        # 图纸编辑器
         self.grid_editor.grid_modified.connect(self._on_grid_modified)
+        self.history_widget.project_selected.connect(self._on_hist_selected)
 
-        # 历史
-        self.history_widget.project_selected.connect(self._on_history_selected)
-
-    def _switch_page(self, index: int):
-        self.content_stack.setCurrentIndex(index)
-        self.nav_workspace_btn.setChecked(index == 0)
-        self.nav_history_btn.setChecked(index == 1)
-        if index == 1:
+    def _switch_page(self, idx):
+        self.content_stack.setCurrentIndex(idx)
+        self.nav_work.setChecked(idx == 0)
+        self.nav_hist.setChecked(idx == 1)
+        if idx == 1:
             self.history_widget.refresh()
 
-    # ==================== 事件处理 ====================
+    # ==================== 事件 ====================
 
-    def _on_image_loaded(self, filepath: str):
-        self.settings_panel.set_enabled(True)
-        self.btn_preview.setEnabled(True)
+    def _on_image_loaded(self, fp):
         self._current_result = None
-        self.btn_generate_grid.setEnabled(False)
-        self.btn_export_pdf.setEnabled(False)
-        self._switch_to_preview_mode()
-        self.statusBar().showMessage(f'图片已加载: {os.path.basename(filepath)}')
+        self.work_stack.setCurrentIndex(0)
+        self._update_step_state()
+        self.statusBar().showMessage(f'已加载: {os.path.basename(fp)}')
 
-    def _on_crop_changed(self, rect: tuple):
+    def _on_crop_changed(self, rect):
         self._current_result = None
-        self.btn_generate_grid.setEnabled(False)
+        self._update_step_state()
 
     def _on_crop_cleared(self):
         self._current_result = None
-        self.btn_generate_grid.setEnabled(False)
+        self._update_step_state()
 
-    def _on_detail_requested(self):
-        """打开图片详情弹窗进行精细裁剪"""
+    def _on_detail(self):
         if not self.upload_widget.current_image_path:
             return
-        dialog = ImageDetailDialog(
+        dlg = ImageDetailDialog(
             self.upload_widget.current_image_path,
             self.upload_widget.get_crop_rect(),
             self
         )
-        if dialog.exec():
-            crop_rect = dialog.get_crop_rect()
-            if crop_rect:
-                self.upload_widget.apply_external_crop(crop_rect)
+        if dlg.exec():
+            cr = dlg.get_crop_rect()
+            if cr:
+                self.upload_widget.apply_external_crop(cr)
             else:
                 self.upload_widget.clear_crop()
 
     def _on_preview(self):
-        """生成预览"""
-        image_path = self.upload_widget.current_image_path
-        if not image_path:
+        path = self.upload_widget.current_image_path
+        if not path:
             QMessageBox.warning(self, '提示', '请先上传图片')
             return
-
         try:
             self.statusBar().showMessage('正在生成预览...')
             QApplication.processEvents()
 
-            settings = self.settings_panel.get_settings()
-            pixelizer = Pixelizer(self.palette_manager)
-            config = PixelizeConfig(
-                grid_width=settings['grid_width'],
-                grid_height=settings['grid_height'],
-                palette_brand=settings['palette_brand'],
-                max_colors=settings['max_colors'],
-                dithering=settings['dithering'],
+            s = self.settings_panel.get_settings()
+            pxl = Pixelizer(self.palette_manager)
+            cfg = PixelizeConfig(
+                grid_width=s['grid_width'], grid_height=s['grid_height'],
+                palette_brand=s['palette_brand'], max_colors=s['max_colors'],
+                dithering=s['dithering'],
                 crop_rect=self.upload_widget.get_crop_rect()
             )
-            result = pixelizer.process(image_path, config)
+            result = pxl.process(path, cfg)
             self._current_result = result
 
             self.preview_widget.update_preview(
@@ -336,126 +359,92 @@ class MainWindow(QMainWindow):
                 result.palette, result.usage_stats
             )
 
-            self.btn_generate_grid.setEnabled(True)
-            self.step_label.setText('Step 2: 确认预览效果，点击「生成图纸」进入编辑')
+            # 保持在预览页面
+            self.work_stack.setCurrentIndex(0)
+            self._update_step_state()
 
             self.statusBar().showMessage(
-                f'预览完成 | {result.grid_width}x{result.grid_height} | '
+                f'预览完成 | {result.grid_width}×{result.grid_height} | '
                 f'{result.color_count} 色 | {result.total_beads} 颗'
             )
         except Exception as e:
-            self.statusBar().showMessage(f'预览失败: {e}')
+            self.statusBar().showMessage(f'失败: {e}')
             QMessageBox.warning(self, '错误', f'处理出错:\n{e}')
 
     def _on_generate_grid(self):
-        """从预览进入图纸编辑"""
         if self._current_result is None:
             QMessageBox.warning(self, '提示', '请先预览效果')
             return
-
         self.grid_editor.load_result(self._current_result)
-        self._switch_to_editor_mode()
-        self.btn_export_pdf.setEnabled(True)
-        self.step_label.setText('Step 3: 编辑图纸（点击格子可修改颜色），完成后导出PDF')
-        self.statusBar().showMessage('图纸已生成，可点击格子修改颜色')
+        self.work_stack.setCurrentIndex(1)
+        self._update_step_state()
+        self.statusBar().showMessage('图纸已生成 — 点击格子可修改颜色，完成后导出PDF')
 
     def _on_grid_modified(self):
-        """图纸被编辑了"""
-        self.statusBar().showMessage('图纸已修改（未保存）')
+        self.statusBar().showMessage('图纸已修改')
 
-    def _on_back_to_preview(self):
-        """返回预览"""
-        # 如果编辑过，提示
+    def _on_back(self):
         if self.grid_editor.is_modified:
-            reply = QMessageBox.question(
-                self, '确认',
-                '返回预览将丢失对图纸的手动修改，确定吗？',
+            r = QMessageBox.question(
+                self, '确认', '返回预览将丢失手动修改，确定吗？',
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No
             )
-            if reply != QMessageBox.StandardButton.Yes:
+            if r != QMessageBox.StandardButton.Yes:
                 return
-
-        self._switch_to_preview_mode()
-        self.step_label.setText('Step 2: 确认预览效果')
-
-    def _switch_to_preview_mode(self):
         self.work_stack.setCurrentIndex(0)
-        self.btn_preview.setVisible(True)
-        self.btn_generate_grid.setVisible(True)
-        self.btn_export_pdf.setVisible(False)
-        self.btn_back_preview.setVisible(False)
-        self.step_label.setText('Step 1: 上传图片并设置参数')
-
-    def _switch_to_editor_mode(self):
-        self.work_stack.setCurrentIndex(1)
-        self.btn_preview.setVisible(False)
-        self.btn_generate_grid.setVisible(False)
-        self.btn_export_pdf.setVisible(True)
-        self.btn_back_preview.setVisible(True)
+        self._update_step_state()
 
     def _on_export_pdf(self):
-        """导出PDF"""
         if self._current_result is None:
             return
-
         try:
             self.statusBar().showMessage('正在导出PDF...')
             QApplication.processEvents()
 
-            settings = self.settings_panel.get_settings()
-            project_name = settings.get('project_name', 'beads_pattern')
-
-            # 从编辑器获取最新数据（可能被修改过）
+            s = self.settings_panel.get_settings()
+            name = s.get('project_name', 'beads_pattern')
             result = self.grid_editor.get_current_result()
 
-            pdf_path = self.history_manager.get_output_path(project_name, '.pdf')
-            pdf_gen = PDFGenerator()
-            pdf_gen.generate(
+            pdf_path = self.history_manager.get_output_path(name, '.pdf')
+            PDFGenerator().generate(
                 filepath=pdf_path,
                 color_id_map=result.color_index_map,
                 palette=result.palette,
                 usage_stats=result.usage_stats,
-                title=project_name,
+                title=name,
                 grid_width=result.grid_width,
                 grid_height=result.grid_height
             )
 
-            # 保存预览图
+            # 预览图
             from PIL import Image as PILImage
-            preview_path = self.history_manager.get_output_path(project_name, '.png')
-            preview_img = PILImage.fromarray(result.matched_rgb)
-            scale = max(1, 400 // max(result.grid_width, result.grid_height))
-            preview_img_resized = preview_img.resize(
-                (result.grid_width * scale, result.grid_height * scale),
+            pp = self.history_manager.get_output_path(name, '.png')
+            img = PILImage.fromarray(result.matched_rgb)
+            sc = max(1, 400 // max(result.grid_width, result.grid_height))
+            img.resize(
+                (result.grid_width * sc, result.grid_height * sc),
                 PILImage.Resampling.NEAREST
-            )
-            preview_img_resized.save(preview_path)
+            ).save(pp)
 
-            # 保存历史
-            image_path = self.upload_widget.current_image_path
-            stored_image = self.history_manager.copy_image_to_storage(image_path, project_name)
-            crop_rect = self.upload_widget.get_crop_rect()
-            record = ProjectRecord(
-                name=project_name,
-                original_image_path=stored_image,
-                grid_width=result.grid_width,
-                grid_height=result.grid_height,
-                palette_brand=settings['palette_brand'],
-                max_colors=settings['max_colors'],
-                dithering=settings['dithering'],
-                pdf_path=pdf_path,
-                preview_path=preview_path,
+            # 历史
+            path = self.upload_widget.current_image_path
+            si = self.history_manager.copy_image_to_storage(path, name)
+            cr = self.upload_widget.get_crop_rect()
+            self.history_manager.save_project(ProjectRecord(
+                name=name, original_image_path=si,
+                grid_width=result.grid_width, grid_height=result.grid_height,
+                palette_brand=s['palette_brand'], max_colors=s['max_colors'],
+                dithering=s['dithering'], pdf_path=pdf_path, preview_path=pp,
                 usage_stats_json=json.dumps(result.usage_stats),
-                crop_rect_json=json.dumps(list(crop_rect)) if crop_rect else ''
-            )
-            self.history_manager.save_project(record)
+                crop_rect_json=json.dumps(list(cr)) if cr else ''
+            ))
 
-            self.statusBar().showMessage(f'PDF已导出: {pdf_path}')
+            self.statusBar().showMessage(f'已导出: {pdf_path}')
             QMessageBox.information(
                 self, '导出成功',
                 f'PDF图纸已生成！\n\n'
-                f'尺寸: {result.grid_width}x{result.grid_height}\n'
+                f'尺寸: {result.grid_width}×{result.grid_height}\n'
                 f'颜色: {result.color_count} 种\n'
                 f'总数: {result.total_beads} 颗\n\n'
                 f'路径: {pdf_path}'
@@ -472,12 +461,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f'导出失败: {e}')
             QMessageBox.critical(self, '错误', f'导出出错:\n{e}')
 
-    def _on_history_selected(self, project_id: int):
-        project = self.history_manager.get_project(project_id)
-        if project and project.pdf_path and os.path.exists(project.pdf_path):
+    def _on_hist_selected(self, pid):
+        p = self.history_manager.get_project(pid)
+        if p and p.pdf_path and os.path.exists(p.pdf_path):
             if sys.platform == 'win32':
-                os.startfile(project.pdf_path)
+                os.startfile(p.pdf_path)
             elif sys.platform == 'darwin':
-                os.system(f'open "{project.pdf_path}"')
+                os.system(f'open "{p.pdf_path}"')
             else:
-                os.system(f'xdg-open "{project.pdf_path}"')
+                os.system(f'xdg-open "{p.pdf_path}"')
