@@ -1,0 +1,3 @@
+"""
+Beads Designer - UI Module
+"""
