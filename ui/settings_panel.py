@@ -1,6 +1,5 @@
 """
-设置面板 v6 - 适配380px宽度
-滚动条不再与控件重叠
+设置面板 v7 - 修复右侧控件截断
 """
 
 from PyQt6.QtWidgets import (
@@ -32,7 +31,8 @@ class SettingsCard(QFrame):
         """)
 
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(16, 14, 16, 14)
+        # 左右边距一致，右侧留够空间
+        self._layout.setContentsMargins(14, 12, 14, 12)
         self._layout.setSpacing(8)
 
         header = QLabel(f'{icon} {title}')
@@ -46,7 +46,7 @@ class SettingsCard(QFrame):
         header.setMinimumHeight(28)
         self._layout.addWidget(header)
 
-    def add_row(self, label_text: str, widget, label_width: int = 60):
+    def add_row(self, label_text: str, widget, label_width: int = 55):
         row = QHBoxLayout()
         row.setSpacing(10)
         row.setContentsMargins(0, 2, 0, 2)
@@ -57,8 +57,10 @@ class SettingsCard(QFrame):
         lbl.setMinimumHeight(28)
         row.addWidget(lbl)
 
-        widget.setMinimumHeight(32)
+        widget.setMinimumHeight(30)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row.addWidget(widget, 1)
+
         self._layout.addLayout(row)
 
     def add_widget(self, widget):
@@ -99,22 +101,26 @@ class SettingsPanel(QWidget):
         title.setMinimumHeight(30)
         outer.addWidget(title)
 
-        # 滚动区域 - 右边留足空间给滚动条
+        # 滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
             QScrollBar:vertical {
                 background: transparent;
-                width: 6px;
-                margin: 2px 1px 2px 0px;
-                border-radius: 3px;
+                width: 5px;
+                margin: 0;
+                border-radius: 2px;
             }
             QScrollBar::handle:vertical {
                 background: #d0d0d0;
-                border-radius: 3px;
+                border-radius: 2px;
                 min-height: 30px;
             }
             QScrollBar::handle:vertical:hover { background: #aaa; }
@@ -125,11 +131,11 @@ class SettingsPanel(QWidget):
         content = QWidget()
         content.setStyleSheet('background: transparent;')
         layout = QVBoxLayout(content)
-        # 右边留 10px 给滚动条，防止重叠
-        layout.setContentsMargins(0, 0, 10, 0)
+        # 关键：右边距留 14px，避免滚动条覆盖控件
+        layout.setContentsMargins(0, 0, 14, 0)
         layout.setSpacing(10)
 
-        # ====== 卡片1: 项目 ======
+        # ====== 卡片1: 项目名称 ======
         card1 = SettingsCard('📝', '项目')
         self.project_name_input = QLineEdit('my_beads')
         self.project_name_input.setPlaceholderText('输入项目名称')
@@ -137,7 +143,7 @@ class SettingsPanel(QWidget):
         card1.add_row('名称:', self.project_name_input)
         layout.addWidget(card1)
 
-        # ====== 卡片2: 尺寸 ======
+        # ====== 卡片2: 图纸尺寸 ======
         card2 = SettingsCard('📐', '图纸尺寸')
 
         self.preset_combo = QComboBox()
@@ -150,44 +156,47 @@ class SettingsPanel(QWidget):
 
         card2.add_spacing(4)
 
-        # 宽 × 高
-        size_row = QHBoxLayout()
-        size_row.setSpacing(8)
-        size_row.setContentsMargins(0, 2, 0, 2)
+        # 宽 × 高 独立行
+        size_container = QWidget()
+        size_layout = QHBoxLayout(size_container)
+        size_layout.setContentsMargins(0, 0, 0, 0)
+        size_layout.setSpacing(6)
 
         wl = QLabel('宽')
         wl.setStyleSheet('font-size: 12px; color: #555;')
-        wl.setFixedWidth(22)
-        size_row.addWidget(wl)
+        wl.setFixedWidth(20)
+        size_layout.addWidget(wl)
 
         self.width_spin = QSpinBox()
         self.width_spin.setRange(10, 500)
         self.width_spin.setValue(52)
-        self.width_spin.setSuffix('  格')
-        self.width_spin.setMinimumHeight(32)
+        self.width_spin.setSuffix(' 格')
+        self.width_spin.setMinimumHeight(30)
+        self.width_spin.setMinimumWidth(70)
         self.width_spin.setStyleSheet(self._spin_style())
-        size_row.addWidget(self.width_spin, 1)
+        size_layout.addWidget(self.width_spin, 1)
 
         xl = QLabel('×')
         xl.setStyleSheet('font-size: 15px; font-weight: bold; color: #b2bec3;')
         xl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        xl.setFixedWidth(20)
-        size_row.addWidget(xl)
+        xl.setFixedWidth(16)
+        size_layout.addWidget(xl)
 
         hl = QLabel('高')
         hl.setStyleSheet('font-size: 12px; color: #555;')
-        hl.setFixedWidth(22)
-        size_row.addWidget(hl)
+        hl.setFixedWidth(20)
+        size_layout.addWidget(hl)
 
         self.height_spin = QSpinBox()
         self.height_spin.setRange(10, 500)
         self.height_spin.setValue(52)
-        self.height_spin.setSuffix('  格')
-        self.height_spin.setMinimumHeight(32)
+        self.height_spin.setSuffix(' 格')
+        self.height_spin.setMinimumHeight(30)
+        self.height_spin.setMinimumWidth(70)
         self.height_spin.setStyleSheet(self._spin_style())
-        size_row.addWidget(self.height_spin, 1)
+        size_layout.addWidget(self.height_spin, 1)
 
-        card2.add_layout(size_row)
+        card2.add_widget(size_container)
 
         card2.add_spacing(2)
 
@@ -198,7 +207,7 @@ class SettingsPanel(QWidget):
 
         layout.addWidget(card2)
 
-        # ====== 卡片3: 色板 ======
+        # ====== 卡片3: 色板与配色 ======
         card3 = SettingsCard('🎨', '色板与配色')
 
         self.palette_combo = QComboBox()
@@ -210,42 +219,46 @@ class SettingsPanel(QWidget):
 
         card3.add_spacing(6)
 
+        # 限色 checkbox
         self.limit_colors_check = QCheckBox('限制使用颜色数量')
         self.limit_colors_check.setStyleSheet(self._check_style())
         card3.add_widget(self.limit_colors_check)
 
-        # 数量输入缩进
-        limit_row = QHBoxLayout()
-        limit_row.setContentsMargins(30, 0, 0, 0)
-        limit_row.setSpacing(8)
+        # 限色数量 - 缩进行
+        limit_container = QWidget()
+        limit_layout = QHBoxLayout(limit_container)
+        limit_layout.setContentsMargins(28, 0, 0, 0)
+        limit_layout.setSpacing(8)
 
         max_lbl = QLabel('最多:')
         max_lbl.setStyleSheet('font-size: 12px; color: #888;')
-        max_lbl.setFixedWidth(40)
-        limit_row.addWidget(max_lbl)
+        max_lbl.setFixedWidth(38)
+        limit_layout.addWidget(max_lbl)
 
         self.max_colors_spin = QSpinBox()
         self.max_colors_spin.setRange(2, 100)
         self.max_colors_spin.setValue(20)
         self.max_colors_spin.setEnabled(False)
-        self.max_colors_spin.setSuffix('  种颜色')
-        self.max_colors_spin.setMinimumHeight(32)
+        self.max_colors_spin.setSuffix(' 种')
+        self.max_colors_spin.setMinimumHeight(30)
+        self.max_colors_spin.setMinimumWidth(80)
         self.max_colors_spin.setStyleSheet(self._spin_style_disabled())
-        limit_row.addWidget(self.max_colors_spin, 1)
+        limit_layout.addWidget(self.max_colors_spin, 1)
 
-        card3.add_layout(limit_row)
+        card3.add_widget(limit_container)
 
         self.limit_colors_check.toggled.connect(self._on_limit_toggled)
 
         card3.add_spacing(6)
 
+        # 抖动
         self.dithering_check = QCheckBox('✨ Floyd-Steinberg 抖动')
         self.dithering_check.setToolTip('启用后颜色过渡更自然')
         self.dithering_check.setStyleSheet(self._check_style())
         card3.add_widget(self.dithering_check)
 
         hint = QLabel('使像素化颜色过渡更平滑')
-        hint.setStyleSheet('font-size: 10px; color: #aaa; padding-left: 30px;')
+        hint.setStyleSheet('font-size: 10px; color: #aaa; padding-left: 28px;')
         card3.add_widget(hint)
 
         layout.addWidget(card3)
@@ -261,7 +274,7 @@ class SettingsPanel(QWidget):
             self._spin_style() if checked else self._spin_style_disabled()
         )
 
-    # ==================== 样式 ====================
+    # ==================== 统一样式 ====================
 
     @staticmethod
     def _input_style():
@@ -269,10 +282,10 @@ class SettingsPanel(QWidget):
             QLineEdit {
                 border: 1px solid #ddd;
                 border-radius: 5px;
-                padding: 6px 12px;
+                padding: 5px 10px;
                 background: #fafafa;
                 font-size: 12px;
-                min-height: 24px;
+                min-height: 22px;
             }
             QLineEdit:hover { border-color: #b8d4f0; }
             QLineEdit:focus { border-color: #74b9ff; background: white; }
@@ -284,23 +297,27 @@ class SettingsPanel(QWidget):
             QComboBox {
                 border: 1px solid #ddd;
                 border-radius: 5px;
-                padding: 6px 12px;
+                padding: 5px 10px;
+                padding-right: 24px;
                 background: #fafafa;
                 font-size: 12px;
-                min-height: 24px;
+                min-height: 22px;
             }
             QComboBox:hover { border-color: #b8d4f0; }
             QComboBox:focus { border-color: #74b9ff; background: white; }
             QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 20px;
                 border: none;
-                width: 24px;
+                border-left: 1px solid #eee;
+                margin-right: 2px;
             }
             QComboBox::down-arrow {
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-top: 5px solid #999;
-                margin-right: 8px;
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #ddd;
@@ -323,33 +340,49 @@ class SettingsPanel(QWidget):
             QSpinBox {
                 border: 1px solid #ddd;
                 border-radius: 5px;
-                padding: 5px 10px;
+                padding: 4px 8px;
+                padding-right: 22px;
                 background: #fafafa;
                 font-size: 12px;
-                min-height: 24px;
+                min-height: 22px;
             }
             QSpinBox:hover { border-color: #b8d4f0; }
             QSpinBox:focus { border-color: #74b9ff; background: white; }
-            QSpinBox::up-button, QSpinBox::down-button {
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
                 width: 20px;
                 border: none;
+                border-left: 1px solid #eee;
+                border-bottom: 1px solid #eee;
                 background: transparent;
+                border-top-right-radius: 4px;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 20px;
+                border: none;
+                border-left: 1px solid #eee;
+                background: transparent;
+                border-bottom-right-radius: 4px;
             }
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {
                 background: #e8f0fe;
-                border-radius: 3px;
             }
             QSpinBox::up-arrow {
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-bottom: 4px solid #888;
+                width: 0; height: 0;
             }
             QSpinBox::down-arrow {
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-top: 4px solid #888;
+                width: 0; height: 0;
             }
         """
 
@@ -359,26 +392,40 @@ class SettingsPanel(QWidget):
             QSpinBox {
                 border: 1px solid #eee;
                 border-radius: 5px;
-                padding: 5px 10px;
+                padding: 4px 8px;
+                padding-right: 22px;
                 background: #f5f5f5;
                 font-size: 12px;
-                min-height: 24px;
+                min-height: 22px;
                 color: #bbb;
             }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 20px; border: none; background: transparent;
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 20px;
+                border: none;
+                background: transparent;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 20px;
+                border: none;
+                background: transparent;
             }
             QSpinBox::up-arrow {
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-bottom: 4px solid #ddd;
+                width: 0; height: 0;
             }
             QSpinBox::down-arrow {
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-top: 4px solid #ddd;
+                width: 0; height: 0;
             }
         """
 

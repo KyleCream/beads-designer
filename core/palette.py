@@ -3,6 +3,7 @@
 负责加载、管理拼豆色板数据，支持内置品牌色板和自定义色板
 """
 
+import sys
 import json
 import os
 import numpy as np
@@ -70,11 +71,20 @@ class PaletteManager:
     """色板管理器"""
 
     def __init__(self):
-        self._palettes: Dict[str, Palette] = {}
-        self._palettes_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "palettes"
+        self._palettes = {}
+
+        # 兼容 PyInstaller 打包后的路径
+        if getattr(sys, 'frozen', False):
+            # 打包后运行
+            base_dir = sys._MEIPASS
+        else:
+            # 开发环境
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+
+        self._palettes_dir = os.path.join(base_dir, "palettes")
+        self._custom_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "palettes", "custom"
         )
-        self._custom_dir = os.path.join(self._palettes_dir, "custom")
         os.makedirs(self._custom_dir, exist_ok=True)
 
     def load_builtin_palettes(self):

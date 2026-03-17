@@ -3,6 +3,7 @@
 负责项目数据模型和历史记录的保存/加载
 """
 
+import sys
 import os
 import json
 import sqlite3
@@ -46,9 +47,13 @@ class HistoryManager:
 
     def __init__(self, data_dir: str = None):
         if data_dir is None:
-            data_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "data"
-            )
+            if getattr(sys, 'frozen', False):
+                # 打包后：数据放在exe同级目录
+                base = os.path.dirname(sys.executable)
+            else:
+                base = os.path.dirname(os.path.dirname(__file__))
+            data_dir = os.path.join(base, "data")
+
         self.data_dir = data_dir
         self.images_dir = os.path.join(data_dir, "images")
         self.outputs_dir = os.path.join(data_dir, "outputs")

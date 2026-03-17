@@ -1,17 +1,16 @@
 """
-图片预处理模块
-处理图片加载、裁剪、缩放等操作
+图片预处理模块 v2
+增加超采样、边缘增强、自动对比度等预处理
 """
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from typing import Tuple, Optional
 
 
 class ImageProcessor:
     """图片处理器"""
 
-    # 预设拼豆板尺寸
     PRESET_SIZES = {
         "小板 (29×29)": (29, 29),
         "大板 (52×52)": (52, 52),
@@ -25,61 +24,48 @@ class ImageProcessor:
     def __init__(self):
         self._original_image: Optional[Image.Image] = None
         self._cropped_image: Optional[Image.Image] = None
-        self._crop_rect: Optional[Tuple[int, int, int, int]] = None
 
     def load_image(self, filepath: str) -> Image.Image:
-        """加载图片"""
         self._original_image = Image.open(filepath).convert("RGB")
         self._cropped_image = None
-        self._crop_rect = None
-        return self._original_image
-
-    @property
-    def original_image(self) -> Optional[Image.Image]:
         return self._original_image
 
     @property
     def working_image(self) -> Optional[Image.Image]:
-        """返回当前工作图片（裁剪后的或原始的）"""
         return self._cropped_image or self._original_image
 
     def crop(self, left: int, top: int, right: int, bottom: int) -> Image.Image:
-        """
-        裁剪图片
-        Args:
-            left, top, right, bottom: 裁剪区域坐标（相对于原图）
-        """
         if self._original_image is None:
             raise ValueError("No image loaded")
-
-        self._crop_rect = (left, top, right, bottom)
-        self._cropped_image = self._original_image.crop(self._crop_rect)
+        self._cropped_image = self._original_image.crop((left, top, right, bottom))
         return self._cropped_image
 
     def reset_crop(self):
-        """重置裁剪"""
         self._cropped_image = None
-        self._crop_rect = None
 
     def pixelize(
         self,
         target_width: int,
         target_height: int,
-        resample_method: str = "lanczos"
+        resample_method: str = "lanczos",
+        enhance: bool = True
     ) -> np.ndarray:
         """
-        将图片像素化到目标尺寸
+        像素化：缩放到目标尺寸
 
         Args:
-            target_width: 目标宽度（拼豆列数）
-            target_height: 目标高度（拼豆行数）
+            target_width: 目标宽度
+            target_height: 目标高度
             resample_method: 缩放算法
-
-        Returns:
-            像素数组 shape=(target_height, target_width, 3)
+            enhance: 是否做增强预处理
         """
         if self.working_image is None:
             raise ValueError("No image loaded")
+
+        img = self.working_image.copy()
+
+        if enhance:
+            img = self._enhance_before_resize(img, target_width, target_height)
 
         resample_map = {
             "nearest": Image.Resampling.NEAREST,
@@ -89,31 +75,72 @@ class ImageProcessor:
         }
         resample = resample_map.get(resample_method, Image.Resampling.LANCZOS)
 
-        resized = self.working_image.resize(
-            (target_width, target_height), resample
-        )
+        # 超采样：先缩放到目标的4倍，再缩到目标
+        # 这样可以获得更好的色彩混合效果
+        src_w, src_h = img.size
+        scale_ratio = max(target_width / src_w, target_height / src_h)
+
+        if scale_ratio < 0.5:
+            # 图片比目标大很多，用超采样
+            mid_w = target_width * 4
+            mid_h = target_height * 4
+            img = img.resize((mid_w, mid_h), Image.Resampling.LANCZOS)
+
+        resized = img.resize((target_width, target_height), resample)
         return np.array(resized, dtype=np.uint8)
 
-    def get_preview_pixelized(
+    def _enhance_before_resize(
         self,
-        target_width: int,
-        target_height: int,
-        preview_scale: int = 10
+        img: Image.Image,
+        target_w: int,
+        target_h: int
     ) -> Image.Image:
         """
-        生成像素化预览图（放大到可预览的尺寸）
+        缩放前的增强预处理
+        自动调整对比度和锐度，让小尺寸像素化效果更好
         """
-        pixel_array = self.pixelize(target_width, target_height)
-        img = Image.fromarray(pixel_array)
-        preview_size = (target_width * preview_scale, target_height * preview_scale)
-        return img.resize(preview_size, Image.Resampling.NEAREST)
+        src_w, src_h = img.size
+        reduction = max(src_w / target_w, src_h / target_h)
+
+        # 大幅缩小时需要更多增强
+        if reduction > 10:
+            # 轻微提升对比度（让颜色更鲜明）
+            img = ImageEnhance.Contrast(img).enhance(1.15)
+            # 轻微提升饱和度
+            img = ImageEnhance.Color(img).enhance(1.1)
+            # 轻微锐化（保留边缘细节）
+            img = img.filter(ImageFilter.SHARPEN)
+        elif reduction > 4:
+            img = ImageEnhance.Contrast(img).enhance(1.08)
+            img = ImageEnhance.Color(img).enhance(1.05)
+
+        return img
+
+    @staticmethod
+    def auto_contrast(img: Image.Image, cutoff: float = 0.5) -> Image.Image:
+        """自动对比度调整"""
+        from PIL import ImageOps
+        return ImageOps.autocontrast(img, cutoff=cutoff)
+
+    @staticmethod
+    def adjust_brightness(img: Image.Image, factor: float) -> Image.Image:
+        """调整亮度 factor: 0.5~2.0"""
+        return ImageEnhance.Brightness(img).enhance(factor)
+
+    @staticmethod
+    def adjust_contrast(img: Image.Image, factor: float) -> Image.Image:
+        """调整对比度"""
+        return ImageEnhance.Contrast(img).enhance(factor)
+
+    @staticmethod
+    def adjust_saturation(img: Image.Image, factor: float) -> Image.Image:
+        """调整饱和度"""
+        return ImageEnhance.Color(img).enhance(factor)
 
     @staticmethod
     def numpy_to_pil(array: np.ndarray) -> Image.Image:
-        """numpy数组转PIL图片"""
         return Image.fromarray(array.astype(np.uint8))
 
     @staticmethod
     def pil_to_numpy(image: Image.Image) -> np.ndarray:
-        """PIL图片转numpy数组"""
         return np.array(image.convert("RGB"), dtype=np.uint8)
