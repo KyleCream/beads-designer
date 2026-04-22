@@ -1,7 +1,8 @@
 """
-色彩匹配模块 v2
-使用CIELAB色彩空间 + Delta E 2000算法进行精确色彩匹配
-支持多种抖动算法
+色彩匹配模块 v3
+- CIELAB色彩空间 + Delta E 2000算法
+- Floyd-Steinberg 改为 LAB 空间误差扩散 + 批量预转换
+- 颜色优选改用 K-Means 聚类，更精准代表图片色彩分布
 """
 
 import numpy as np
@@ -38,7 +39,6 @@ class ColorMatcher:
         )
 
         # Linear RGB -> XYZ (D65 白点)
-        # 矩阵转换
         m = np.array([
             [0.4124564, 0.3575761, 0.1804375],
             [0.2126729, 0.7151522, 0.0721750],
@@ -47,7 +47,6 @@ class ColorMatcher:
         xyz = rgb_linear @ m.T
 
         # XYZ -> LAB
-        # D65 白点参考值
         ref = np.array([0.95047, 1.00000, 1.08883])
         xyz_norm = xyz / ref
 
@@ -87,7 +86,6 @@ class ColorMatcher:
         L1, a1, b1 = lab1[0], lab1[1], lab1[2]
         L2, a2, b2 = lab2[0], lab2[1], lab2[2]
 
-        # Step 1
         C1 = np.sqrt(a1**2 + b1**2)
         C2 = np.sqrt(a2**2 + b2**2)
         C_avg = (C1 + C2) / 2.0
@@ -104,7 +102,6 @@ class ColorMatcher:
         h1p = np.degrees(np.arctan2(b1, a1p)) % 360
         h2p = np.degrees(np.arctan2(b2, a2p)) % 360
 
-        # Step 2
         dLp = L2 - L1
         dCp = C2p - C1p
 
@@ -119,7 +116,6 @@ class ColorMatcher:
 
         dHp = 2 * np.sqrt(C1p * C2p) * np.sin(np.radians(dhp / 2))
 
-        # Step 3
         Lp_avg = (L1 + L2) / 2
         Cp_avg = (C1p + C2p) / 2
 
@@ -180,13 +176,10 @@ class ColorMatcher:
         Returns:
             matched_rgb, color_index_map, usage_stats
         """
-        h, w, _ = pixel_array.shape
-
-        # 如果限制颜色数，先选最优子集
         working_matcher = self
         if max_colors > 0:
             max_colors = max(max_colors, self.MIN_COLORS)
-            subset_palette = self._select_optimal_colors(pixel_array, max_colors)
+            subset_palette = self._select_optimal_colors_kmeans(pixel_array, max_colors)
             working_matcher = ColorMatcher(subset_palette)
 
         if dithering:
@@ -199,10 +192,7 @@ class ColorMatcher:
         h, w, _ = pixel_array.shape
         flat = pixel_array.reshape(-1, 3).astype(np.float64)
 
-        # 批量转LAB
         flat_lab = self._rgb_to_lab_batch(flat)
-
-        # KD-Tree 批量查询
         _, indices = self._kdtree.query(flat_lab)
 
         matched_rgb = self._rgb_array[indices].reshape(h, w, 3).astype(np.uint8)
@@ -216,44 +206,44 @@ class ColorMatcher:
         return matched_rgb, color_id_map, usage
 
     def _match_floyd_steinberg(self, pixel_array: np.ndarray):
-        """Floyd-Steinberg 抖动匹配（CIELAB空间）"""
+        """
+        Floyd-Steinberg 抖动匹配（LAB空间误差扩散）
+        - 预批量转换整图为 LAB，消除逐像素转换开销
+        - 误差在 LAB 空间积累，感知更均匀
+        - 结果构建向量化，避免逐像素赋值
+        """
         h, w, _ = pixel_array.shape
-        # 在浮点RGB空间工作
-        working = pixel_array.astype(np.float64).copy()
+
+        # 预批量转换到 LAB 空间
+        flat_rgb = pixel_array.reshape(-1, 3).astype(np.float64)
+        flat_lab = self._rgb_to_lab_batch(flat_rgb)
+        working_lab = flat_lab.reshape(h, w, 3).copy()
+
         color_id_map = np.zeros((h, w), dtype=np.int32)
 
         for y in range(h):
             for x in range(w):
-                old_pixel = working[y, x].copy()
-                # 限制到合法范围
-                old_pixel = np.clip(old_pixel, 0, 255)
-
-                # LAB空间查找最近色
-                lab = self._rgb_to_lab_batch(old_pixel.reshape(1, 3))
-                _, idx = self._kdtree.query(lab)
+                old_lab = working_lab[y, x]
+                _, idx = self._kdtree.query(old_lab.reshape(1, 3))
                 idx = idx[0]
-                new_pixel = self._rgb_array[idx].astype(np.float64)
+                new_lab = self._lab_array[idx]
                 color_id_map[y, x] = idx
 
-                # 计算误差
-                error = old_pixel - new_pixel
-                working[y, x] = new_pixel
+                # 误差在 LAB 空间扩散
+                error = old_lab - new_lab
+                working_lab[y, x] = new_lab
 
-                # 分散误差 (Floyd-Steinberg)
                 if x + 1 < w:
-                    working[y, x + 1] += error * 7.0 / 16.0
+                    working_lab[y, x + 1] += error * (7.0 / 16.0)
                 if y + 1 < h:
                     if x - 1 >= 0:
-                        working[y + 1, x - 1] += error * 3.0 / 16.0
-                    working[y + 1, x] += error * 5.0 / 16.0
+                        working_lab[y + 1, x - 1] += error * (3.0 / 16.0)
+                    working_lab[y + 1, x] += error * (5.0 / 16.0)
                     if x + 1 < w:
-                        working[y + 1, x + 1] += error * 1.0 / 16.0
+                        working_lab[y + 1, x + 1] += error * (1.0 / 16.0)
 
-        # 构建结果
-        matched_rgb = np.zeros((h, w, 3), dtype=np.uint8)
-        for y in range(h):
-            for x in range(w):
-                matched_rgb[y, x] = self._rgb_array[color_id_map[y, x]]
+        # 向量化构建 matched_rgb
+        matched_rgb = self._rgb_array[color_id_map.reshape(-1)].reshape(h, w, 3).astype(np.uint8)
 
         usage = {}
         unique, counts = np.unique(color_id_map, return_counts=True)
@@ -262,25 +252,54 @@ class ColorMatcher:
 
         return matched_rgb, color_id_map, usage
 
-    def _select_optimal_colors(
-        self, pixel_array: np.ndarray, max_colors: int
-    ) -> Palette:
+    def _select_optimal_colors_kmeans(self, pixel_array: np.ndarray, max_colors: int) -> Palette:
         """
-        选择最优颜色子集
-        策略：先全色板匹配 -> 按使用频率排序 -> 取Top N
-        然后用选出的子集重新匹配一轮，迭代优化
+        用 K-Means 聚类选最优颜色子集（在 LAB 空间）
+        策略：把图片像素聚成 max_colors 簇，每簇中心找最近的拼豆色
+        比按频率取 Top N 更能代表图片的真实色彩分布
         """
-        # 第一轮：全色板匹配
+        from scipy.cluster.vq import kmeans2
+
+        h, w, _ = pixel_array.shape
+        flat = pixel_array.reshape(-1, 3).astype(np.float64)
+        flat_lab = self._rgb_to_lab_batch(flat)
+
+        # 采样加速（像素过多时随机取样）
+        n_pixels = flat_lab.shape[0]
+        if n_pixels > 8000:
+            rng = np.random.default_rng(42)
+            sample_idx = rng.choice(n_pixels, 8000, replace=False)
+            sample_lab = flat_lab[sample_idx]
+        else:
+            sample_lab = flat_lab
+
+        n_clusters = min(max_colors, sample_lab.shape[0])
+        n_clusters = max(self.MIN_COLORS, n_clusters)
+
+        try:
+            centroids, _ = kmeans2(sample_lab, n_clusters, minit="points", niter=20)
+        except Exception:
+            # K-Means 失败时回退到频率策略
+            return self._select_optimal_colors_fallback(pixel_array, max_colors)
+
+        # 每个聚类中心找最近的拼豆色（去重）
+        _, centroid_indices = self._kdtree.query(centroids)
+        seen = set()
+        top_ids = []
+        for idx in centroid_indices:
+            cid = self.palette.colors[int(idx)].id
+            if cid not in seen:
+                seen.add(cid)
+                top_ids.append(cid)
+
+        return self.palette.get_subset(top_ids)
+
+    def _select_optimal_colors_fallback(self, pixel_array: np.ndarray, max_colors: int) -> Palette:
+        """回退方案：按使用频率取 Top N"""
         _, _, usage = self._match_direct(pixel_array)
         sorted_colors = sorted(usage.items(), key=lambda x: x[1], reverse=True)
         top_ids = [cid for cid, _ in sorted_colors[:max_colors]]
-        subset = self.palette.get_subset(top_ids)
-
-        # 第二轮：用子集重新匹配，看有没有被遗漏的重要颜色
-        sub_matcher = ColorMatcher(subset)
-        _, _, usage2 = sub_matcher._match_direct(pixel_array)
-
-        return subset
+        return self.palette.get_subset(top_ids)
 
     def get_color_by_index(self, index: int) -> BeadColor:
         return self.palette.colors[index]

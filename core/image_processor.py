@@ -75,15 +75,12 @@ class ImageProcessor:
         }
         resample = resample_map.get(resample_method, Image.Resampling.LANCZOS)
 
-        # 超采样：先缩放到目标的4倍，再缩到目标
-        # 这样可以获得更好的色彩混合效果
+        # 超采样：先缩到中间尺寸（target*4），再缩到目标，获得更好的色彩混合
+        # 只有在中间尺寸确实比原图小时才做，避免先放大再缩小引入噪点
         src_w, src_h = img.size
-        scale_ratio = max(target_width / src_w, target_height / src_h)
-
-        if scale_ratio < 0.5:
-            # 图片比目标大很多，用超采样
-            mid_w = target_width * 4
-            mid_h = target_height * 4
+        mid_w = target_width * 4
+        mid_h = target_height * 4
+        if mid_w < src_w and mid_h < src_h:
             img = img.resize((mid_w, mid_h), Image.Resampling.LANCZOS)
 
         resized = img.resize((target_width, target_height), resample)
